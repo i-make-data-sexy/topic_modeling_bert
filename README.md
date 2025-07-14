@@ -6,6 +6,12 @@ Rather than relying on traditional word frequency–based models, this workflow 
 
 ---
 
+## Blog Post
+
+I wrote a blog post where I explain my approach more. You can read it [here](https://www.annielytics.com/blog/ai/topic-modeling-with-bertopic-and-gpt/).
+
+---
+
 ## Project Structure
 
 This is how I structured the project. If you want to use different data, add your csv to the data directory and update the reference in the file.
@@ -77,7 +83,7 @@ pip install -r requirements.txt
 
 ### 3. Generate an OpenAI API key
 
-You can create an API key [here](https://platform.openai.com/api-keys). Or use your model du jour.
+You can create an API key [here](https://platform.openai.com/api-keys). Or use your model du jour. (Just update the model in the script.)
 
 ### 4. Create an .env file
 
