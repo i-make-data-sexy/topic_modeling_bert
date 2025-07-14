@@ -14,15 +14,19 @@ from umap import UMAP
 import warnings
 from dotenv import load_dotenv
 
+
+# ========================================================================
+#   Load env variables
+# ========================================================================
+
 # Load environment variables
 load_dotenv()
 warnings.filterwarnings("ignore")
 
 
 # ========================================================================
-#   Process
+#   Helper functions
 # ========================================================================
-
 
 def load_reviews(filepath):
     """
@@ -59,7 +63,7 @@ def create_bertopic_model():
     """
     print("\n🤖 Setting up BERTopic model...")
 
-    # Use a good sentence transformer model
+    # Instantiate sentence transformer model
     sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
 
     # Configure UMAP for dimensionality reduction
@@ -103,15 +107,18 @@ def create_bertopic_model():
     vectorizer_model = CountVectorizer(
         stop_words=stop_words,
         min_df=5,
-        ngram_range=(1, 2),  # Include bigrams for better context
+        # Include bigrams for better context
+        ngram_range=(1, 2),
     )
 
-    # Create BERTopic model
+    # Instantiate BERTopic model
     topic_model = BERTopic(
         embedding_model=sentence_model,
         umap_model=umap_model,
         vectorizer_model=vectorizer_model,
         top_n_words=10,
+        # Limit: 10 topics
+        nr_topics=10,
         verbose=True,
     )
 
@@ -139,7 +146,8 @@ def run_topic_modeling(topic_model, reviews):
     # Get topic information
     topic_info = topic_model.get_topic_info()
 
-    print(f"\n✓ Found {len(topic_info) - 1} topics!")  # -1 to exclude outlier topic
+    # -1 to exclude outlier topic
+    print(f"\n✓ Found {len(topic_info) - 1} topics!")
 
     return topics, probs, topic_info
 
@@ -156,25 +164,29 @@ def get_gpt_interpretation(topic_words, example_docs, topic_num):
     Returns:
         dict: GPT's interpretation including name and analysis
     """
+    
     # Prepare the prompt
-    prompt = f"""You are analyzing topics from product reviews. Based on the following information, provide a clear interpretation:
+    prompt = f"""
+        You are analyzing topics from product reviews. Based on the following information, provide a clear interpretation.
 
-Top words/phrases for Topic {topic_num}:
-{', '.join(topic_words[:15])}
+        Top words/phrases for Topic {topic_num}:
+        {', '.join(topic_words[:15])}
 
-Example reviews (excerpts):
-1. "{example_docs[0][:300]}..."
-2. "{example_docs[1][:300]}..."
-3. "{example_docs[2][:300]}..."
+        Example reviews (excerpts):
+        1. "{example_docs[0][:300]}..."
+        2. "{example_docs[1][:300]}..."
+        3. "{example_docs[2][:300]}..."
 
-Please provide:
-1. A concise topic name (2-5 words)
-2. A brief description (1-2 sentences) of what this topic represents
-3. The main themes discussed in this topic (bullet points)
-4. What type of product(s) these reviews are likely about
+        Please provide:
+        1. A concise topic name (2–5 words) that describes the product category being reviewed (e.g., 'Streaming Devices', 'E-Readers', 'Headphones'). 
+        Avoid words like 'reviews' or 'issues' and just list the product category. Also avoid overly broad topics like 'Electronic Devices'.
+        2. The main themes discussed in this topic (bullet points).
+        3. The type of product(s) these reviews are likely about.
 
-Format your response as JSON with keys: "name", "description", "themes", "product_type"
-"""
+        Frame your interpretation around product types/categories rather than specific sentiment or brand names.
+
+        Format your response as JSON with keys: "name", "description", "themes", "product_type"
+    """
 
     try:
         # Call GPT-4
@@ -185,7 +197,9 @@ Format your response as JSON with keys: "name", "description", "themes", "produc
                     "role": "system",
                     "content": "You are an expert at analyzing and interpreting topic modeling results.",
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", 
+                 "content": prompt
+                },
             ],
             temperature=0.3,
             max_tokens=300,
@@ -210,7 +224,7 @@ Format your response as JSON with keys: "name", "description", "themes", "produc
         }
 
 
-def analyze_all_topics_with_gpt(topic_model, reviews, topics, max_topics=10):
+def analyze_all_topics_with_gpt(topic_model, reviews, topics, max_topics=15):
     """
     Analyzes all discovered topics using GPT for interpretation.
 
@@ -273,42 +287,73 @@ def create_interactive_visualizations(topic_model, topics, probs, interpretation
     """
     print("\n📊 Creating interactive visualizations...")
 
-    # 1. Topic distribution bar chart
+    # ================================================
+    #   Topic distribution bar chart
+    # ================================================
+    # Generate count of topics
     topic_counts = pd.Series(topics).value_counts()
-    topic_counts = topic_counts[topic_counts.index != -1]  # Remove outliers
+    
+    # Get list of valid topic numbers (0 to n), excluding -1 outlier topic if present
+    topic_counts = topic_counts[topic_counts.index != -1]  
 
     # Add interpreted names to the chart
-    topic_names = []
-    for topic_num in topic_counts.index:
+    # Sort in descending order for horizontal display
+    topic_counts_sorted = topic_counts.sort_values(ascending=True)  
+    
+    # Reorder topic names to match
+    topic_names_sorted = []
+    for topic_num in topic_counts_sorted.index:
         if topic_num in interpretations:
-            topic_names.append(f"{interpretations[topic_num]['name']}")
+            topic_names_sorted.append(f"{interpretations[topic_num]['name']}")
         else:
-            topic_names.append(f"Topic {topic_num}")
-
+            topic_names_sorted.append(f"Topic {topic_num}")
+    
     fig_dist = go.Figure(
         data=[
             go.Bar(
-                x=topic_names,
-                y=topic_counts.values,
-                text=topic_counts.values,
-                textposition="auto",
-                marker_color="lightblue",
+                x=topic_counts_sorted.values,           # Use sorted values
+                y=topic_names_sorted,                   # Use sorted names          
+                orientation="h",                        # Horizontal                                     
+                text=topic_counts_sorted.values,        # Use count for data labels
+                textposition="outside",                 # Place data labels outside bars
+                marker_color="#FFA500",               # Annielytics orange
+                marker=dict(color="#FFA500", 
+                            line=dict(color="#FFA500",
+                                      width=0)),
             )
         ]
     )
 
     fig_dist.update_layout(
-        title="Topic Distribution in Reviews",
-        xaxis_title="Topics",
-        yaxis_title="Number of Reviews",
-        xaxis_tickangle=-45,
+        title={
+            'text': "Topic Distribution in Reviews",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': dict(size=18)
+        },
+        yaxis_tickangle=0,                                                  # No angle needed for horizontal
+        xaxis_tickangle=0,
         height=500,
+        plot_bgcolor="white",                                               # White background
+        paper_bgcolor="white",
+        margin_pad=10,
+        xaxis=dict(
+            showgrid=False,                                                 # No gridlines
+            zeroline=True, 
+            showticklabels=False),                                          
+        yaxis=dict(
+            showgrid=False,                                                 # No gridlines
+            zeroline=True)                                          
     )
 
-    fig_dist.write_html("topic_distribution_interactive.html")
+    fig_dist.write_html("output/topic_distribution_interactive.html")
     print("  ✓ Saved interactive topic distribution")
+    
+    
+    # ================================================
+    #   Topic similarity heatmap 
+    # ================================================
 
-    # 2. Topic similarity heatmap
     topic_embeddings = topic_model._extract_embeddings(
         [
             " ".join([word for word, _ in topic_model.get_topic(t)])
@@ -316,7 +361,7 @@ def create_interactive_visualizations(topic_model, topics, probs, interpretation
         ]
     )
 
-    # Calculate similarity matrix
+    # Calculate similarity matrix using cosine similarity
     from sklearn.metrics.pairwise import cosine_similarity
 
     similarity_matrix = cosine_similarity(topic_embeddings)
@@ -329,40 +374,206 @@ def create_interactive_visualizations(topic_model, topics, probs, interpretation
         else:
             heatmap_labels.append(f"Topic {i}")
 
+    # Convert to percentages for display
+    similarity_percentages = np.round(similarity_matrix * 100).astype(int)
+    
+    # Convert to percentages for display
+    similarity_percentages = np.round(similarity_matrix * 100).astype(int)
+
     fig_heat = go.Figure(
         data=go.Heatmap(
             z=similarity_matrix,
             x=heatmap_labels,
             y=heatmap_labels,
-            colorscale="Viridis",
-            text=np.round(similarity_matrix, 2),
-            texttemplate="%{text}",
+            colorscale=[
+                [0, "#FFF6E6"],
+                [1, "#FFA500"],
+            ],  # My brand colors
+            text=similarity_percentages,                                        # Show percentages
+            texttemplate="%{text}%",                                            # Add % symbol
             textfont={"size": 10},
+            hovertemplate="%{x} - %{y}<br>Similarity: %{text}%<extra></extra>", # Better hover
         )
     )
 
     fig_heat.update_layout(
-        title="Topic Similarity Matrix", height=600, xaxis_tickangle=-45
+        title={
+            'text': "Topic Similarity Matrix",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': dict(size=18)
+        },
+        height=600, 
+        xaxis_tickangle=-45,       
+        margin_pad=10,                                                           # Air out yaxis labels
+        paper_bgcolor='white',                                                   # Remove gray border around heatmap
+        plot_bgcolor='white'                                                     # Remove gray border around heatmap
     )
 
-    fig_heat.write_html("topic_similarity_interactive.html")
+    fig_heat.write_html("output/topic_similarity_interactive.html")
     print("  ✓ Saved interactive topic similarity matrix")
 
-    # 3. Save topic visualization from BERTopic
-    fig_topics = topic_model.visualize_topics()
-    fig_topics.write_html("topic_clusters_interactive.html")
+
+    # ================================================
+    #   Topic bubble chart from BERTopic
+    # ================================================
+
+    # Calculate topic similarity using embeddings
+    from sklearn.metrics.pairwise import cosine_similarity
+    
+    # Get topic words for similarity calculation
+    topic_words_list = []
+    valid_topics = [t for t in set(topics) if t != -1]
+    valid_topics.sort()
+    
+    for topic_num in valid_topics:
+        words = [word for word, _ in topic_model.get_topic(topic_num)][:20]
+        topic_words_list.append(" ".join(words))
+    
+    # Create embeddings and calculate similarity
+    from sentence_transformers import SentenceTransformer
+    sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+    topic_embeddings = sentence_model.encode(topic_words_list)
+    similarity_matrix = cosine_similarity(topic_embeddings)
+    
+    # Use TSNE for 2D positioning based on embeddings directly
+    from sklearn.manifold import TSNE
+    tsne = TSNE(n_components=2, perplexity=5, random_state=42)
+    topic_positions = tsne.fit_transform(topic_embeddings)
+    
+    # Normalize positions to use full viewport
+    x_min, x_max = topic_positions[:, 0].min(), topic_positions[:, 0].max()
+    y_min, y_max = topic_positions[:, 1].min(), topic_positions[:, 1].max()
+    
+    # Scale to use more of the viewport
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    topic_positions[:, 0] = ((topic_positions[:, 0] - x_min) / x_range - 0.5) * 10
+    topic_positions[:, 1] = ((topic_positions[:, 1] - y_min) / y_range - 0.5) * 8
+    
+    # Get topic data
+    topic_data = []
+    for i, topic_num in enumerate(valid_topics):
+        size = len([t for t in topics if t == topic_num])
+        
+        if topic_num in interpretations:
+            name = interpretations[topic_num]['name']
+            desc = interpretations[topic_num]['description']
+        else:
+            name = f"Topic {topic_num + 1}"
+            desc = "No interpretation available"
+        
+        topic_data.append({
+            'topic_num': topic_num,
+            'display_num': topic_num + 1,                   # Start with 1 instead of 0
+            'name': name,
+            'description': desc,
+            'size': size,
+            'x': topic_positions[i, 0],
+            'y': topic_positions[i, 1],
+            'percentage': (size / len(topics)) * 100
+        })
+    
+    # Create the visualization
+    fig_topics_custom = go.Figure()
+    
+    # Add connection lines for highly similar topics
+    for i in range(len(valid_topics)):
+        for j in range(i + 1, len(valid_topics)):
+            if similarity_matrix[i, j] > 0.7:  # High similarity threshold
+                fig_topics_custom.add_trace(go.Scatter(
+                    x=[topic_data[i]['x'], topic_data[j]['x']],
+                    y=[topic_data[i]['y'], topic_data[j]['y']],
+                    mode='lines',
+                    line=dict(color='rgba(128, 128, 128, 0.3)', width=2),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+    
+    # Add bubbles
+    for i, topic in enumerate(topic_data):
+        # Color based on size (larger = darker orange)
+        opacity = 0.4 + (topic['percentage'] / 100) * 0.6
+        color = '#FFA500'  # Use your brand orange
+        
+        bubble_size = 30 + np.sqrt(topic['size']) * 10
+        
+        fig_topics_custom.add_trace(go.Scatter(
+            x=[topic['x']],
+            y=[topic['y']],
+            mode='markers+text',
+            marker=dict(
+                size=bubble_size,
+                color=color,
+                opacity=0.8,
+                line=dict(color='white', width=2)
+            ),
+            text=f"<b>{topic['name']}</b>",
+            textposition="middle center",
+            textfont=dict(size=11),
+            hovertemplate=(
+                f"<b>{topic['name']}</b><br>" +
+                f"Topic {topic['display_num']}<br>" +
+                f"Size: {topic['size']} reviews ({topic['percentage']:.1f}%)<br>" +
+                f"<i>{topic['description']}</i>" +
+                "<extra></extra>"
+            ),
+            hoverlabel= dict(bgcolor='rgba(139, 180, 45, 0.7)'),
+            showlegend=False
+        ))
+    
+    # Full viewport layout
+    fig_topics_custom.update_layout(
+        title={
+            'text': "Topic Similarity Map",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': dict(size=18)
+        },
+        xaxis=dict(
+            visible=True,
+            range=[-9, 9],                                      # Wider range to prevent cutoff
+            showgrid=False,
+            zeroline=False,
+            zerolinecolor='lightgray',
+            showline=True,                                      # Show axis line
+            linewidth=2,                                        # Make it visible
+            linecolor='#DEDEDE',                              # Gray border
+            mirror=True,                                        # Show on all sides
+            showticklabels=False,
+            title=""
+        ),
+        yaxis=dict(
+            visible=True,
+            range=[-7, 7],                                      # Wider range to prevent cutoff  
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            showline=True,                                      # Show axis line
+            linewidth=2,                                        # Make it visible
+            linecolor='#DEDEDE',                              # Gray border
+            mirror=True,                                        # Show on all sides
+            title=""
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=800,
+        width=1200,
+        margin=dict(l=100, r=100, t=80, b=80),                  # Bigger margins
+        hovermode='closest'
+    )
+    
+    fig_topics_custom.write_html("output/topic_clusters_interactive.html")
     print("  ✓ Saved interactive topic clusters")
-
-    print("\n✓ All visualizations saved!")
-
+    
 
 def save_detailed_results(
     topic_model,
     topics,
     interpretations,
     reviews,
-    output_file="topic_analysis_results.csv",
-):
+    output_file="output/topic_analysis_results.csv",
+    ):
     """
     Saves detailed results including topic assignments and interpretations.
 
@@ -459,55 +670,64 @@ def main():
     print("🚀 Starting Modern Topic Analysis with BERTopic and GPT!")
     print("=" * 60)
 
-    # Configuration
-    filepath = "productreviewskaggle.csv"
+    # Create output directory if it doesn't exist
+    import os
 
-    # Step 1: Load the data
+    os.makedirs("output", exist_ok=True)
+
+    # Configuration
+    filepath = "data/product-reviews-kaggle.csv"
+
+    # Load the data
     reviews, df = load_reviews(filepath)
 
-    # Step 2: Create BERTopic model
+    # Create BERTopic model
     topic_model, sentence_model = create_bertopic_model()
 
-    # Step 3: Run topic modeling
+    # Run topic modeling
     topics, probs, topic_info = run_topic_modeling(topic_model, reviews)
 
     # Display basic topic info
     print("\n📊 Topic Overview:")
     print(topic_info.head(10))
 
-    # Step 4: Use GPT to interpret topics
+    # Use GPT to interpret topics
     interpretations = analyze_all_topics_with_gpt(
         topic_model, reviews, topics, max_topics=10  # Analyze top 10 topics
     )
 
-    # Step 5: Create visualizations
+    # Create visualizations
     create_interactive_visualizations(topic_model, topics, probs, interpretations)
 
-    # Step 6: Save detailed results
+    # Save detailed results
     save_detailed_results(topic_model, topics, interpretations, reviews)
 
-    # Step 7: Create and save summary report
+    # Create and save summary report
     report = create_topic_summary_report(interpretations, topic_info)
 
-    with open("topic_analysis_report.txt", "w") as f:
+    with open("output/topic_analysis_report.txt", "w") as f:
         f.write(report)
 
     print("\n" + report)
 
     print("\n🎉 Analysis Complete!")
     print("\nYou now have:")
-    print("  ✓ topic_distribution_interactive.html - Interactive topic distribution")
-    print("  ✓ topic_similarity_interactive.html - Topic similarity matrix")
-    print("  ✓ topic_clusters_interactive.html - Topic cluster visualization")
-    print("  ✓ topic_analysis_results.csv - Detailed results with all reviews")
-    print("  ✓ topic_analysis_report.txt - Summary report")
+    print(
+        "  ✓ output/topic_distribution_interactive.html - Interactive topic distribution"
+    )
+    print("  ✓ output/topic_similarity_interactive.html - Topic similarity matrix")
+    print("  ✓ output/topic_clusters_interactive.html - Topic cluster visualization")
+    print("  ✓ output/topic_analysis_results.csv - Detailed results with all reviews")
+    print("  ✓ output/topic_analysis_report.txt - Summary report")
 
     return topic_model, topics, interpretations
 
+# ========================================================================
+#   Process csv
+# ========================================================================
 
-# Run the analysis
 if __name__ == "__main__":
-    # Make sure to set your OpenAI API key before running!
+    # If API key isn't set
     if not openai.api_key:
         print("⚠️  Please set your OpenAI API key first!")
         print("You can do this by:")
